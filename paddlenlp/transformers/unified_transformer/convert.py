@@ -28,7 +28,7 @@ def setup_args():
 
 def convert(args):
     paddle.enable_static()
-    prog_state = paddle.fluid.io.load_program_state(args.param_path)
+    prog_state = paddle.static.load_program_state(args.param_path)
     new_state = {}
     for k in prog_state:
         if k.endswith("_embedding"):
@@ -60,8 +60,7 @@ def convert(args):
                         suffix = "norm2.bias"
             elif sub_layer == "multi":
                 prefix += "self_attn."
-                m = re.match("encoder_layer_(\d+)_multi_head_att_(\w+)\.(.+)",
-                             k)
+                m = re.match("encoder_layer_(\d+)_multi_head_att_(\w+)\.(.+)", k)
                 if m.group(2) == "query_fc":
                     if m.group(3) == "w_0":
                         suffix = "q_proj.weight"

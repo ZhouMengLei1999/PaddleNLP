@@ -30,6 +30,5 @@ class Recorder(object):
         print("batch_size: {}".format(self.batch_size))
         print("num_of_samples: {}".format(self.samples))
         print("----------------------- Perf info -----------------------")
-        print("average_latency(ms): {}".format(self.infer_time / (self.samples
-                                                                  )))
+        print("average_latency(ms): {}".format(self.infer_time / (self.samples)))
         print("QPS: {}".format((self.samples) / (self.infer_time / 1000.0)))

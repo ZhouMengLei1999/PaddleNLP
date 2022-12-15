@@ -52,10 +52,7 @@ def set_seed(args):
 
 
 def get_label_maps():
-    labels = [
-        "O", "B-QUESTION", "B-ANSWER", "B-HEADER", "I-ANSWER", "I-QUESTION",
-        "I-HEADER"
-    ]
+    labels = ["O", "B-QUESTION", "B-ANSWER", "B-HEADER", "I-ANSWER", "I-QUESTION", "I-HEADER"]
     label2id_map = {label: idx for idx, label in enumerate(labels)}
     id2label_map = {idx: label for idx, label in enumerate(labels)}
     return label2id_map, id2label_map
@@ -64,12 +61,11 @@ def get_label_maps():
 def train(args):
     os.makedirs(args.output_dir, exist_ok=True)
     logging.basicConfig(
-        filename=os.path.join(args.output_dir, "train.log")
-        if paddle.distributed.get_rank() == 0 else None,
+        filename=os.path.join(args.output_dir, "train.log") if paddle.distributed.get_rank() == 0 else None,
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO
-        if paddle.distributed.get_rank() == 0 else logging.WARN, )
+        level=logging.INFO if paddle.distributed.get_rank() == 0 else logging.WARN,
+    )
 
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
@@ -84,8 +80,7 @@ def train(args):
 
     tokenizer = LayoutXLMTokenizer.from_pretrained(args.model_name_or_path)
     base_model = LayoutXLMModel.from_pretrained(args.model_name_or_path)
-    model = LayoutXLMForTokenClassification(
-        base_model, num_classes=len(label2id_map), dropout=None)
+    model = LayoutXLMForTokenClassification(base_model, num_classes=len(label2id_map), dropout=None)
 
     # dist mode
     if paddle.distributed.get_world_size() > 1:
@@ -101,51 +96,53 @@ def train(args):
         contains_re=False,
         add_special_ids=False,
         return_attention_mask=True,
-        load_mode='all')
+        load_mode="all",
+    )
 
     train_sampler = paddle.io.DistributedBatchSampler(
-        train_dataset, batch_size=args.per_gpu_train_batch_size, shuffle=True)
+        train_dataset, batch_size=args.per_gpu_train_batch_size, shuffle=True
+    )
 
-    args.train_batch_size = args.per_gpu_train_batch_size * max(
-        1, paddle.distributed.get_world_size())
+    args.train_batch_size = args.per_gpu_train_batch_size * max(1, paddle.distributed.get_world_size())
 
     train_dataloader = paddle.io.DataLoader(
         train_dataset,
         batch_sampler=train_sampler,
         num_workers=0,
         use_shared_memory=True,
-        collate_fn=None, )
+        collate_fn=None,
+    )
 
     t_total = len(train_dataloader) * args.num_train_epochs
 
     # build linear decay with warmup lr sch
     lr_scheduler = paddle.optimizer.lr.PolynomialDecay(
-        learning_rate=args.learning_rate,
-        decay_steps=t_total,
-        end_lr=0.0,
-        power=1.0)
+        learning_rate=args.learning_rate, decay_steps=t_total, end_lr=0.0, power=1.0
+    )
     if args.warmup_steps > 0:
         lr_scheduler = paddle.optimizer.lr.LinearWarmup(
             lr_scheduler,
             args.warmup_steps,
             start_lr=0,
-            end_lr=args.learning_rate, )
+            end_lr=args.learning_rate,
+        )
 
     optimizer = paddle.optimizer.AdamW(
         learning_rate=lr_scheduler,
         parameters=model.parameters(),
         epsilon=args.adam_epsilon,
-        weight_decay=args.weight_decay)
+        weight_decay=args.weight_decay,
+    )
 
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info("  Instantaneous batch size per GPU = %d",
-                args.per_gpu_train_batch_size)
+    logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
     logger.info(
         "  Total train batch size (w. parallel, distributed) = %d",
-        args.train_batch_size * paddle.distributed.get_world_size(), )
+        args.train_batch_size * paddle.distributed.get_world_size(),
+    )
     logger.info("  Total optimization steps = %d", t_total)
 
     global_step = 0
@@ -161,10 +158,15 @@ def train(args):
             loss = outputs[0]
             loss = loss.mean()
             logger.info(
-                "[epoch {}/{}][iter: {}/{}] lr: {:.5f}, train loss: {:.5f}, ".
-                format(epoch_id, args.num_train_epochs, step,
-                       len(train_dataloader),
-                       lr_scheduler.get_lr(), loss.numpy()[0]))
+                "[epoch {}/{}][iter: {}/{}] lr: {:.5f}, train loss: {:.5f}, ".format(
+                    epoch_id,
+                    args.num_train_epochs,
+                    step,
+                    len(train_dataloader),
+                    lr_scheduler.get_lr(),
+                    loss.numpy()[0],
+                )
+            )
 
             loss.backward()
             tr_loss += loss.item()
@@ -173,63 +175,51 @@ def train(args):
             optimizer.clear_grad()
             global_step += 1
 
-            if (paddle.distributed.get_rank() == 0 and args.eval_steps > 0 and
-                    global_step % args.eval_steps == 0):
+            if paddle.distributed.get_rank() == 0 and args.eval_steps > 0 and global_step % args.eval_steps == 0:
                 # Log metrics
                 # Only evaluate when single GPU otherwise metrics may not average well
-                if paddle.distributed.get_rank(
-                ) == 0 and args.evaluate_during_training:
+                if paddle.distributed.get_rank() == 0 and args.evaluate_during_training:
                     results, _ = evaluate(
                         args,
                         model,
                         tokenizer,
                         label2id_map,
                         id2label_map,
-                        pad_token_label_id, )
+                        pad_token_label_id,
+                    )
 
-                    if best_metrics is None or results["f1"] >= best_metrics[
-                            "f1"]:
+                    if best_metrics is None or results["f1"] >= best_metrics["f1"]:
                         best_metrics = copy.deepcopy(results)
                         output_dir = os.path.join(args.output_dir, "best_model")
                         os.makedirs(output_dir, exist_ok=True)
                         if paddle.distributed.get_rank() == 0:
                             model.save_pretrained(output_dir)
                             tokenizer.save_pretrained(output_dir)
-                            paddle.save(
-                                args,
-                                os.path.join(output_dir, "training_args.bin"))
-                            logger.info("Saving model checkpoint to %s",
-                                        output_dir)
+                            paddle.save(args, os.path.join(output_dir, "training_args.bin"))
+                            logger.info("Saving model checkpoint to %s", output_dir)
 
-                    logger.info("[epoch {}/{}][iter: {}/{}] results: {}".format(
-                        epoch_id, args.num_train_epochs, step,
-                        len(train_dataloader), results))
+                    logger.info(
+                        "[epoch {}/{}][iter: {}/{}] results: {}".format(
+                            epoch_id, args.num_train_epochs, step, len(train_dataloader), results
+                        )
+                    )
                     if best_metrics is not None:
                         logger.info("best metrics: {}".format(best_metrics))
 
-            if paddle.distributed.get_rank(
-            ) == 0 and args.save_steps > 0 and global_step % args.save_steps == 0:
+            if paddle.distributed.get_rank() == 0 and args.save_steps > 0 and global_step % args.save_steps == 0:
                 # Save model checkpoint
-                output_dir = os.path.join(args.output_dir,
-                                          "checkpoint-{}".format(global_step))
+                output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
                 os.makedirs(output_dir, exist_ok=True)
                 if paddle.distributed.get_rank() == 0:
                     model.save_pretrained(output_dir)
                     tokenizer.save_pretrained(output_dir)
-                    paddle.save(args,
-                                os.path.join(output_dir, "training_args.bin"))
+                    paddle.save(args, os.path.join(output_dir, "training_args.bin"))
                     logger.info("Saving model checkpoint to %s", output_dir)
 
     return global_step, tr_loss / global_step
 
 
-def evaluate(args,
-             model,
-             tokenizer,
-             label2id_map,
-             id2label_map,
-             pad_token_label_id,
-             prefix=""):
+def evaluate(args, model, tokenizer, label2id_map, id2label_map, pad_token_label_id, prefix=""):
     eval_dataset = XFUN(
         tokenizer,
         data_dir=args.eval_data_dir,
@@ -240,17 +230,18 @@ def evaluate(args,
         contains_re=False,
         add_special_ids=False,
         return_attention_mask=True,
-        load_mode='all')
+        load_mode="all",
+    )
 
-    args.eval_batch_size = args.per_gpu_eval_batch_size * max(
-        1, paddle.distributed.get_world_size())
+    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, paddle.distributed.get_world_size())
 
     eval_dataloader = paddle.io.DataLoader(
         eval_dataset,
         batch_size=args.eval_batch_size,
         num_workers=0,
         use_shared_memory=True,
-        collate_fn=None, )
+        collate_fn=None,
+    )
 
     # Eval!
     logger.info("***** Running evaluation %s *****", prefix)
@@ -269,8 +260,9 @@ def evaluate(args,
             tmp_eval_loss = tmp_eval_loss.mean()
 
             if paddle.distributed.get_rank() == 0:
-                logger.info("[Eval]process: {}/{}, loss: {:.5f}".format(
-                    idx, len(eval_dataloader), tmp_eval_loss.numpy()[0]))
+                logger.info(
+                    "[Eval]process: {}/{}, loss: {:.5f}".format(idx, len(eval_dataloader), tmp_eval_loss.numpy()[0])
+                )
 
             eval_loss += tmp_eval_loss.item()
         nb_eval_steps += 1
@@ -279,8 +271,7 @@ def evaluate(args,
             out_label_ids = batch["labels"].numpy()
         else:
             preds = np.append(preds, logits.numpy(), axis=0)
-            out_label_ids = np.append(
-                out_label_ids, batch["labels"].numpy(), axis=0)
+            out_label_ids = np.append(out_label_ids, batch["labels"].numpy(), axis=0)
 
     eval_loss = eval_loss / nb_eval_steps
     preds = np.argmax(preds, axis=2)
@@ -326,10 +317,10 @@ def evaluate(args,
 
 def print_arguments(args):
     """print arguments"""
-    print('-----------  Configuration Arguments -----------')
+    print("-----------  Configuration Arguments -----------")
     for arg, value in sorted(vars(args).items()):
-        print('%s: %s' % (arg, value))
-    print('------------------------------------------------')
+        print("%s: %s" % (arg, value))
+    print("------------------------------------------------")
 
 
 if __name__ == "__main__":

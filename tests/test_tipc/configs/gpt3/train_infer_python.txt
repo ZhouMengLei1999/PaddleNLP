@@ -17,7 +17,7 @@ norm_train:../examples/language_model/gpt-3/dygraph/run_pretrain.py --model_type
 pact_train:null
 fpgm_train:null
 distill_train:null
-null:null
+to_static_train:--to_static
 null:null
 ##
 ===========================eval_params=========================== 
@@ -51,7 +51,7 @@ null:null
 null:null
 ===========================train_benchmark_params==========================
 batch_size:8
-fp_items:fp16
+fp_items:fp16|fp32
 epoch:200
 --profiler_options:batch_range=[100,110];state=GPU;tracer_option=Default;profile_path=model.profile  
 flags:FLAGS_eager_delete_tensor_gb=0.0;FLAGS_fraction_of_gpu_memory_to_use=0.98;FLAGS_conv_workspace_size_limit=4096

@@ -16,13 +16,15 @@ from collections import OrderedDict
 import argparse
 
 dont_transpose = [
-    "shared.weight", "layer_norm.weight", ".layer_norm.weight",
-    "relative_attention_bias.weight", "embed_tokens.weight"
+    "shared.weight",
+    "layer_norm.weight",
+    ".layer_norm.weight",
+    "relative_attention_bias.weight",
+    "embed_tokens.weight",
 ]
 
 
-def convert_pytorch_checkpoint_to_paddle(pytorch_checkpoint_path,
-                                         paddle_dump_path):
+def convert_pytorch_checkpoint_to_paddle(pytorch_checkpoint_path, paddle_dump_path):
     import torch
     import paddle
 
@@ -53,13 +55,14 @@ if __name__ == "__main__":
         default="google/t5-large/pytorch_model.bin",
         type=str,
         required=False,
-        help="Path to the Pytorch checkpoint path.", )
+        help="Path to the Pytorch checkpoint path.",
+    )
     parser.add_argument(
         "--paddle_dump_path",
         default="paddle/t5-large/model_state.pdparams",
         type=str,
         required=False,
-        help="Path to the output Paddle model.", )
+        help="Path to the output Paddle model.",
+    )
     args = parser.parse_args()
-    convert_pytorch_checkpoint_to_paddle(args.pytorch_checkpoint_path,
-                                         args.paddle_dump_path)
+    convert_pytorch_checkpoint_to_paddle(args.pytorch_checkpoint_path, args.paddle_dump_path)

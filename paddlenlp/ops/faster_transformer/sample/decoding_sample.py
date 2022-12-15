@@ -37,16 +37,12 @@ def parse_args():
         "--config",
         default="./faster_transformer/sample/config/decoding.sample.yaml",
         type=str,
-        help="Path of the config file. ")
+        help="Path of the config file. ",
+    )
     parser.add_argument(
-        "--decoding_lib",
-        default="./build/lib/libdecoding_op.so",
-        type=str,
-        help="Path of libdecoding_op.so. ")
-    parser.add_argument(
-        "--use_fp16_decoding",
-        action="store_true",
-        help="Whether to use fp16 decoding to predict. ")
+        "--decoding_lib", default="./build/lib/libdecoding_op.so", type=str, help="Path of libdecoding_op.so. "
+    )
+    parser.add_argument("--use_fp16_decoding", action="store_true", help="Whether to use fp16 decoding to predict. ")
     args = parser.parse_args()
     return args
 
@@ -75,32 +71,29 @@ def do_predict(args):
         topp=args.topp,
         max_out_len=args.max_out_len,
         decoding_lib=args.decoding_lib,
-        use_fp16_decoding=args.use_fp16_decoding)
+        use_fp16_decoding=args.use_fp16_decoding,
+    )
 
     # Set evaluate mode
     transformer.eval()
 
-    enc_output = paddle.randn(
-        [args.infer_batch_size, args.max_length, args.d_model])
+    enc_output = paddle.randn([args.infer_batch_size, args.max_length, args.d_model])
     if args.use_fp16_decoding:
         enc_output = paddle.cast(enc_output, "float16")
-    mem_seq_len = paddle.randint(
-        1, args.max_length + 1, shape=[args.infer_batch_size], dtype="int32")
+    mem_seq_len = paddle.randint(1, args.max_length + 1, shape=[args.infer_batch_size], dtype="int32")
     with paddle.no_grad():
         for i in range(100):
-            # For warmup. 
+            # For warmup.
             if 50 == i:
                 start = time.time()
-            transformer.decoding(
-                enc_output=enc_output, memory_seq_lens=mem_seq_len)
-        logger.info("Average test time for decoding is %f ms" % (
-            (time.time() - start) / 50 * 1000))
+            transformer.decoding(enc_output=enc_output, memory_seq_lens=mem_seq_len)
+        logger.info("Average test time for decoding is %f ms" % ((time.time() - start) / 50 * 1000))
 
 
 if __name__ == "__main__":
     ARGS = parse_args()
     yaml_file = ARGS.config
-    with open(yaml_file, 'rt') as f:
+    with open(yaml_file, "rt") as f:
         args = AttrDict(yaml.safe_load(f))
         pprint(args)
     args.decoding_lib = ARGS.decoding_lib

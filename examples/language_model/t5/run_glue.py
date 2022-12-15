@@ -35,62 +35,62 @@ def parse_args():
         "--model_name_or_path",
         default="t5-small",
         type=str,
-        help="Path to pre-trained model or shortcut name of model.", )
+        help="Path to pre-trained model or shortcut name of model.",
+    )
     parser.add_argument(
         "--task_name",
         default="sst-2",
         type=str,
-        help="task_name.", )
+        help="task_name.",
+    )
     parser.add_argument(
         "--output_dir",
         default="outputs",
         type=str,
         help="The output directory where the model predictions and checkpoints will be written. "
-        "Default as `outputs`", )
+        "Default as `outputs`",
+    )
     parser.add_argument(
         "--max_seq_length",
         default=256,
         type=int,
         help="The maximum total input sequence length after tokenization. Sequences longer "
-        "than this will be truncated, sequences shorter will be padded.", )
+        "than this will be truncated, sequences shorter will be padded.",
+    )
     parser.add_argument(
         "--train_batch_size",
         default=4,
         type=int,
-        help="Batch size per GPU/CPU for training.", )
+        help="Batch size per GPU/CPU for training.",
+    )
     parser.add_argument(
         "--eval_batch_size",
         default=16,
         type=int,
-        help="Batch size per GPU/CPU for evaluating.", )
+        help="Batch size per GPU/CPU for evaluating.",
+    )
 
     parser.add_argument(
         "--gradient_accumulation_steps",
         default=1,
         type=int,
-        help="gradient_accumulation_steps.", )
+        help="gradient_accumulation_steps.",
+    )
     parser.add_argument(
         "--learning_rate",
         default=2e-5,
         type=float,
-        help="The initial learning rate for Adam.", )
-    parser.add_argument(
-        "--weight_decay",
-        default=0.01,
-        type=float,
-        help="Weight decay if we apply some.")
-    parser.add_argument(
-        "--adam_epsilon",
-        default=1e-6,
-        type=float,
-        help="Epsilon for Adam optimizer.")
-    parser.add_argument(
-        "--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+        help="The initial learning rate for Adam.",
+    )
+    parser.add_argument("--weight_decay", default=0.01, type=float, help="Weight decay if we apply some.")
+    parser.add_argument("--adam_epsilon", default=1e-6, type=float, help="Epsilon for Adam optimizer.")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument(
         "--num_train_epochs",
         default=4,
         type=int,
-        help="Total number of training epochs to perform.", )
+        help="Total number of training epochs to perform.",
+    )
     parser.add_argument(
         "--max_train_steps",
         default=-1,
@@ -103,45 +103,41 @@ def parse_args():
         type=float,
         help="Proportion of training steps to perform linear learning rate warmup for.",
     )
-    parser.add_argument(
-        "--warmup_steps", type=int, default=-1, help="warmup_steps.")
-    parser.add_argument(
-        "--logging_steps",
-        type=int,
-        default=10,
-        help="Log every X updates steps.")
+    parser.add_argument("--warmup_steps", type=int, default=-1, help="warmup_steps.")
+    parser.add_argument("--logging_steps", type=int, default=10, help="Log every X updates steps.")
     parser.add_argument(
         "--save_steps",
         type=int,
         default=50,
-        help="Save checkpoint every X updates steps.", )
-    parser.add_argument(
-        "--seed", type=int, default=42, help="random seed for initialization")
+        help="Save checkpoint every X updates steps.",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument(
         "--writer_type",
         choices=["visualdl", "tensorboard"],
         default="visualdl",
-        help="writer_type.", )
+        help="writer_type.",
+    )
     parser.add_argument(
         "--scheduler_type",
         choices=["linear", "cosine", "poly"],
         default="linear",
         type=str,
-        help="scheduler_type.", )
-    parser.add_argument(
-        "--use_amp",
-        action="store_true",
-        help="Enable mixed precision training.")
+        help="scheduler_type.",
+    )
+    parser.add_argument("--use_amp", action="store_true", help="Enable mixed precision training.")
     parser.add_argument(
         "--scale_loss",
         type=float,
         default=2**15,
-        help="The value of scale_loss for fp16.", )
+        help="The value of scale_loss for fp16.",
+    )
     parser.add_argument(
         "--num_workers",
         type=int,
         default=0,
-        help="num_workers.", )
+        help="num_workers.",
+    )
     parser.add_argument("--is_test", action="store_true", help="is_test.")
     args = parser.parse_args()
     args.task_name = args.task_name.lower()
@@ -167,12 +163,7 @@ logger = logging.getLogger(__name__)
 
 
 @paddle.no_grad()
-def evaluate(model,
-             data_loader,
-             tokenizer,
-             label2id,
-             metric_list,
-             generate_max_length=5):
+def evaluate(model, data_loader, tokenizer, label2id, metric_list, generate_max_length=5):
     model.eval()
     all_preds = []
     all_labels = []
@@ -182,13 +173,12 @@ def evaluate(model,
         outputs = model.generate(
             input_ids=source_ids,
             attention_mask=source_mask,
-            max_length=generate_max_length, )[0]
+            max_length=generate_max_length,
+        )[0]
 
-        for p, l, m in zip(outputs.numpy(), labels.numpy(),
-                           target_mask.numpy()):
+        for p, l, m in zip(outputs.numpy(), labels.numpy(), target_mask.numpy()):
             pred = tokenizer.decode(p, skip_special_tokens=True).strip()
-            label = tokenizer.decode(
-                l[m.astype("bool")], skip_special_tokens=True).strip()
+            label = tokenizer.decode(l[m.astype("bool")], skip_special_tokens=True).strip()
             if label2id:
                 pred = label2id[pred]
                 label = label2id[label]
@@ -215,8 +205,10 @@ def main(args):
             logging.FileHandler(
                 os.path.join(args.output_dir, "run.log"),
                 mode="w",
-                encoding="utf-8", )
-        ], )
+                encoding="utf-8",
+            )
+        ],
+    )
     logger.info("**********  Configuration Arguments **********")
     for arg, value in sorted(vars(args).items()):
         logger.info(f"{arg}: {value}")
@@ -241,18 +233,14 @@ def main(args):
     # get dataloader
     train_dataloader = get_train_dataloader(tokenizer, args)
     if args.task_name == "mnli":
-        dev_dataloader_match = get_mnli_dev_dataloader(
-            tokenizer, args, matched=True)
-        dev_dataloader_mismatch = get_mnli_dev_dataloader(
-            tokenizer, args, matched=False)
+        dev_dataloader_match = get_mnli_dev_dataloader(tokenizer, args, matched=True)
+        dev_dataloader_mismatch = get_mnli_dev_dataloader(tokenizer, args, matched=False)
     else:
         dev_dataloader = get_dev_dataloader(tokenizer, args)
 
-    num_update_steps_per_epoch = math.ceil(
-        len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps > 0:
-        args.num_train_epochs = math.ceil(args.max_train_steps /
-                                          num_update_steps_per_epoch)
+        args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
     else:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
 
@@ -260,16 +248,13 @@ def main(args):
     lr_scheduler = get_scheduler(
         learning_rate=args.learning_rate,
         scheduler_type=args.scheduler_type,
-        num_warmup_steps=args.warmup_steps
-        if args.warmup_steps > 0 else args.warmup_radio,
-        num_training_steps=args.max_train_steps, )
+        num_warmup_steps=args.warmup_steps if args.warmup_steps > 0 else args.warmup_radio,
+        num_training_steps=args.max_train_steps,
+    )
 
     total_batch_size = args.train_batch_size * args.gradient_accumulation_steps
 
-    decay_params = [
-        p.name for n, p in model.named_parameters()
-        if not any(nd in n for nd in ["bias", "norm"])
-    ]
+    decay_params = [p.name for n, p in model.named_parameters() if not any(nd in n for nd in ["bias", "norm"])]
 
     optimizer = AdamW(
         learning_rate=lr_scheduler,
@@ -278,7 +263,8 @@ def main(args):
         epsilon=args.adam_epsilon,
         parameters=model.parameters(),
         weight_decay=args.weight_decay,
-        apply_decay_param_fun=lambda x: x in decay_params, )
+        apply_decay_param_fun=lambda x: x in decay_params,
+    )
 
     if args.use_amp:
         scaler = GradScaler(init_loss_scaling=args.scale_loss)
@@ -288,10 +274,8 @@ def main(args):
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous train batch size = {args.train_batch_size}")
     logger.info(f"  Instantaneous eval batch size = {args.eval_batch_size}")
-    logger.info(
-        f"  Total train batch size (w. accumulation) = {total_batch_size}")
-    logger.info(
-        f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+    logger.info(f"  Total train batch size (w. accumulation) = {total_batch_size}")
+    logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
 
     progress_bar = tqdm(range(args.max_train_steps))
@@ -302,14 +286,14 @@ def main(args):
     for _ in range(args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
             model.train()
-            with auto_cast(
-                    args.use_amp, custom_white_list=["layer_norm", "softmax"]):
+            with auto_cast(args.use_amp, custom_white_list=["layer_norm", "softmax"]):
                 source_ids, source_mask, labels, target_mask = batch
                 outputs = model(
                     input_ids=source_ids,
                     attention_mask=source_mask,
                     labels=labels,
-                    decoder_attention_mask=target_mask, )
+                    decoder_attention_mask=target_mask,
+                )
                 loss = outputs[0] / args.gradient_accumulation_steps
                 tr_loss += loss.item()
 
@@ -318,8 +302,7 @@ def main(args):
             else:
                 loss.backward()
 
-            if (step % args.gradient_accumulation_steps == 0 or
-                    step == len(train_dataloader) - 1):
+            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
                 if args.use_amp:
                     scaler.minimize(optimizer, loss)
                 else:
@@ -335,19 +318,21 @@ def main(args):
                     writer.add_scalar(
                         "loss",
                         (tr_loss - logging_loss) / args.logging_steps,
-                        global_steps, )
+                        global_steps,
+                    )
                     logger.info(
                         "global_steps {} - lr: {:.10f}  loss: {:.10f}".format(
                             global_steps,
                             lr_scheduler.get_lr(),
-                            (tr_loss - logging_loss) / args.logging_steps, ))
+                            (tr_loss - logging_loss) / args.logging_steps,
+                        )
+                    )
                     logging_loss = tr_loss
 
                 if args.save_steps > 0 and global_steps % args.save_steps == 0:
                     logger.info("********** Running evaluating **********")
                     logger.info(f"********** Step {global_steps} **********")
-                    output_dir = os.path.join(args.output_dir,
-                                              f"step-{global_steps}")
+                    output_dir = os.path.join(args.output_dir, f"step-{global_steps}")
                     os.makedirs(output_dir, exist_ok=True)
 
                     if args.task_name == "mnli":
@@ -357,10 +342,10 @@ def main(args):
                             tokenizer,
                             label2id,
                             metric_list,
-                            generate_max_length, )
+                            generate_max_length,
+                        )
                         for k, v in matched_results.items():
-                            writer.add_scalar(f"eval/matched_{k}", v,
-                                              global_steps)
+                            writer.add_scalar(f"eval/matched_{k}", v, global_steps)
                             logger.info(f"  {k} = {v}")
                         mismatched_results = evaluate(
                             model,
@@ -368,10 +353,10 @@ def main(args):
                             tokenizer,
                             label2id,
                             metric_list,
-                            generate_max_length, )
+                            generate_max_length,
+                        )
                         for k, v in mismatched_results.items():
-                            writer.add_scalar(f"eval/mismatched_{k}", v,
-                                              global_steps)
+                            writer.add_scalar(f"eval/mismatched_{k}", v, global_steps)
                             logger.info(f"  {k} = {v}")
                     else:
                         eval_results = evaluate(
@@ -380,7 +365,8 @@ def main(args):
                             tokenizer,
                             label2id,
                             metric_list,
-                            generate_max_length, )
+                            generate_max_length,
+                        )
                         for k, v in eval_results.items():
                             writer.add_scalar(f"eval/{k}", v, global_steps)
                             logger.info(f"  {k} = {v}")
@@ -391,8 +377,7 @@ def main(args):
             if global_steps >= args.max_train_steps:
                 logger.info("********** Running evaluating **********")
                 logger.info(f"********** Step {global_steps} **********")
-                output_dir = os.path.join(args.output_dir,
-                                          f"step-{global_steps}")
+                output_dir = os.path.join(args.output_dir, f"step-{global_steps}")
                 os.makedirs(output_dir, exist_ok=True)
 
                 if args.task_name == "mnli":
@@ -402,7 +387,8 @@ def main(args):
                         tokenizer,
                         label2id,
                         metric_list,
-                        generate_max_length, )
+                        generate_max_length,
+                    )
                     for k, v in matched_results.items():
                         writer.add_scalar(f"eval/matched_{k}", v, global_steps)
                         logger.info(f"  {k} = {v}")
@@ -412,10 +398,10 @@ def main(args):
                         tokenizer,
                         label2id,
                         metric_list,
-                        generate_max_length, )
+                        generate_max_length,
+                    )
                     for k, v in mismatched_results.items():
-                        writer.add_scalar(f"eval/mismatched_{k}", v,
-                                          global_steps)
+                        writer.add_scalar(f"eval/mismatched_{k}", v, global_steps)
                         logger.info(f"  {k} = {v}")
                 else:
                     eval_results = evaluate(
@@ -424,7 +410,8 @@ def main(args):
                         tokenizer,
                         label2id,
                         metric_list,
-                        generate_max_length, )
+                        generate_max_length,
+                    )
                     for k, v in eval_results.items():
                         writer.add_scalar(f"eval/{k}", v, global_steps)
                         logger.info(f"  {k} = {v}")

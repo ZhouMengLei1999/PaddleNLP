@@ -41,8 +41,7 @@ def read_test_file(data_path):
 
 
 def decoding(text, tag_seq):
-    assert len(text) == len(
-        tag_seq), f"text len: {len(text)}, tag_seq len: {len(tag_seq)}"
+    assert len(text) == len(tag_seq), f"text len: {len(text)}, tag_seq len: {len(tag_seq)}"
 
     puncs = list(",.?;!，。？；！")
     splits = [idx for idx in range(len(text)) if text[idx] in puncs]
@@ -69,14 +68,14 @@ def decoding(text, tag_seq):
         for ent in ent_list:
             ent_name, start, end = ent
             if ent_name == "Aspect":
-                aspect = sub_tag_seq[start:end + 1]
+                aspect = sub_tag_seq[start : end + 1]
                 sub_aps.append([aspect])
                 if len(sub_no_a_words) > 0:
                     sub_aps[-1].extend(sub_no_a_words)
                     sub_no_a_words.clear()
             else:
                 ent_name == "Opinion"
-                opinion = sub_tag_seq[start:end + 1]
+                opinion = sub_tag_seq[start : end + 1]
                 if len(sub_aps) > 0:
                     sub_aps[-1].append(opinion)
                 else:
@@ -111,11 +110,13 @@ def concate_aspect_and_opinion(text, aspect, opinions):
 
     return aspect_text
 
+
 def save_examples(examples, save_path, idxs):
     with open(save_path, "w", encoding="utf-8") as f:
         for idx in idxs:
-            line = "\t".join(examples[idx])+"\n"
+            line = "\t".join(examples[idx]) + "\n"
             f.write(line)
+
 
 def save_dict(dict_path, dict_type):
     if dict_type not in ["ext", "cls"]:
@@ -128,6 +129,4 @@ def save_dict(dict_path, dict_type):
             label_list = ["负向", "正向"]
 
         for label in label_list:
-            f.write(label+"\n")
-        
-
+            f.write(label + "\n")

@@ -14,14 +14,15 @@
 
 import argparse
 import os
-
-import numpy as np
-import paddle
-import paddlenlp as ppnlp
 from scipy.special import softmax
+import numpy as np
+
+import paddle
 from paddle import inference
+
 from paddlenlp.data import Stack, Tuple, Pad
 from paddlenlp.datasets import load_dataset
+from paddlenlp.transformers import AutoModel, AutoTokenizer
 from paddlenlp.utils.log import logger
 
 # yapf: disable
@@ -59,8 +60,7 @@ def convert_example(example, tokenizer, max_seq_length=512, is_test=False):
 
     query, title = example["query"], example["title"]
 
-    encoded_inputs = tokenizer(
-        text=query, text_pair=title, max_seq_len=max_seq_length)
+    encoded_inputs = tokenizer(text=query, text_pair=title, max_seq_len=max_seq_length)
 
     input_ids = encoded_inputs["input_ids"]
     token_type_ids = encoded_inputs["token_type_ids"]
@@ -73,15 +73,17 @@ def convert_example(example, tokenizer, max_seq_length=512, is_test=False):
 
 
 class Predictor(object):
-    def __init__(self,
-                 model_dir,
-                 device="gpu",
-                 max_seq_length=128,
-                 batch_size=32,
-                 use_tensorrt=False,
-                 precision="fp32",
-                 cpu_threads=10,
-                 enable_mkldnn=False):
+    def __init__(
+        self,
+        model_dir,
+        device="gpu",
+        max_seq_length=128,
+        batch_size=32,
+        use_tensorrt=False,
+        precision="fp32",
+        cpu_threads=10,
+        enable_mkldnn=False,
+    ):
         self.max_seq_length = max_seq_length
         self.batch_size = batch_size
 
@@ -100,15 +102,14 @@ class Predictor(object):
             precision_map = {
                 "fp16": inference.PrecisionType.Half,
                 "fp32": inference.PrecisionType.Float32,
-                "int8": inference.PrecisionType.Int8
+                "int8": inference.PrecisionType.Int8,
             }
             precision_mode = precision_map[precision]
 
             if args.use_tensorrt:
                 config.enable_tensorrt_engine(
-                    max_batch_size=batch_size,
-                    min_subgraph_size=30,
-                    precision_mode=precision_mode)
+                    max_batch_size=batch_size, min_subgraph_size=30, precision_mode=precision_mode
+                )
         elif device == "cpu":
             # set CPU configs accordingly,
             # such as enable_mkldnn, set_cpu_math_library_num_threads
@@ -124,15 +125,12 @@ class Predictor(object):
 
         config.switch_use_feed_fetch_ops(False)
         self.predictor = paddle.inference.create_predictor(config)
-        self.input_handles = [
-            self.predictor.get_input_handle(name)
-            for name in self.predictor.get_input_names()
-        ]
-        self.output_handle = self.predictor.get_output_handle(
-            self.predictor.get_output_names()[0])
+        self.input_handles = [self.predictor.get_input_handle(name) for name in self.predictor.get_input_names()]
+        self.output_handle = self.predictor.get_output_handle(self.predictor.get_output_names()[0])
 
         if args.benchmark:
             import auto_log
+
             pid = os.getpid()
             self.autolog = auto_log.AutoLogger(
                 model_name="ernie-tiny",
@@ -144,11 +142,10 @@ class Predictor(object):
                 pids=pid,
                 process_name=None,
                 gpu_ids=0,
-                time_keys=[
-                    'preprocess_time', 'inference_time', 'postprocess_time'
-                ],
+                time_keys=["preprocess_time", "inference_time", "postprocess_time"],
                 warmup=0,
-                logger=logger)
+                logger=logger,
+            )
 
     def predict(self, data, tokenizer, label_map):
         """
@@ -156,7 +153,7 @@ class Predictor(object):
 
         Args:
             data (obj:`List(str)`): The batch data whose each element is a raw text.
-            tokenizer(obj:`PretrainedTokenizer`): This tokenizer inherits from :class:`~paddlenlp.transformers.PretrainedTokenizer` 
+            tokenizer(obj:`PretrainedTokenizer`): This tokenizer inherits from :class:`~paddlenlp.transformers.PretrainedTokenizer`
                 which contains most of the methods. Users should refer to the superclass for more information regarding methods.
             label_map(obj:`dict`): The label id (key) to label str (value) map.
 
@@ -168,11 +165,7 @@ class Predictor(object):
 
         examples = []
         for text in data:
-            input_ids, segment_ids = convert_example(
-                text,
-                tokenizer,
-                max_seq_length=self.max_seq_length,
-                is_test=True)
+            input_ids, segment_ids = convert_example(text, tokenizer, max_seq_length=self.max_seq_length, is_test=True)
             examples.append((input_ids, segment_ids))
 
         batchify_fn = lambda samples, fn=Tuple(
@@ -191,7 +184,7 @@ class Predictor(object):
         if args.benchmark:
             self.autolog.times.stamp()
 
-        #probs = softmax(logits, axis=1)
+        # probs = softmax(logits, axis=1)
         idx = np.argmax(probs, axis=1)
         idx = idx.tolist()
         labels = [label_map[i] for i in idx]
@@ -204,27 +197,30 @@ class Predictor(object):
 
 if __name__ == "__main__":
     # Define predictor to do prediction.
-    predictor = Predictor(args.model_dir, args.device, args.max_seq_length,
-                          args.batch_size, args.use_tensorrt, args.precision,
-                          args.cpu_threads, args.enable_mkldnn)
+    predictor = Predictor(
+        args.model_dir,
+        args.device,
+        args.max_seq_length,
+        args.batch_size,
+        args.use_tensorrt,
+        args.precision,
+        args.cpu_threads,
+        args.enable_mkldnn,
+    )
 
-    tokenizer = ppnlp.transformers.ErnieGramTokenizer.from_pretrained(
-        'ernie-gram-zh')
+    tokenizer = AutoTokenizer.from_pretrained("ernie-3.0-medium-zh")
 
     test_ds = load_dataset("lcqmc", splits=["test"])
 
-    data = [{'query': d['query'], 'title': d['title']} for d in test_ds]
+    data = [{"query": d["query"], "title": d["title"]} for d in test_ds]
 
-    batches = [
-        data[idx:idx + args.batch_size]
-        for idx in range(0, len(data), args.batch_size)
-    ]
-    label_map = {0: 'dissimilar', 1: 'similar'}
+    batches = [data[idx : idx + args.batch_size] for idx in range(0, len(data), args.batch_size)]
+    label_map = {0: "dissimilar", 1: "similar"}
 
     results = []
     for batch_data in batches:
         results.extend(predictor.predict(batch_data, tokenizer, label_map))
     for idx, text in enumerate(data):
-        print('Data: {} \t Label: {}'.format(text, results[idx]))
+        print("Data: {} \t Label: {}".format(text, results[idx]))
     if args.benchmark:
         predictor.autolog.report()

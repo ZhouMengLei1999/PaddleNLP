@@ -18,7 +18,6 @@ import os
 
 import paddle
 from paddle.static import InputSpec
-import paddlenlp as ppnlp
 from paddlenlp.data import Vocab
 
 from data import load_vocab
@@ -36,11 +35,10 @@ args = parser.parse_args()
 
 
 def main():
-    word_vocab = load_vocab(os.path.join(args.data_dir, 'word.dic'))
-    label_vocab = load_vocab(os.path.join(args.data_dir, 'tag.dic'))
+    word_vocab = load_vocab(os.path.join(args.data_dir, "word.dic"))
+    label_vocab = load_vocab(os.path.join(args.data_dir, "tag.dic"))
 
-    model = BiGruCrf(args.emb_dim, args.hidden_size,
-                     len(word_vocab), len(label_vocab))
+    model = BiGruCrf(args.emb_dim, args.hidden_size, len(word_vocab), len(label_vocab))
 
     state_dict = paddle.load(args.params_path)
     model.set_dict(state_dict)
@@ -49,10 +47,10 @@ def main():
     model = paddle.jit.to_static(
         model,
         input_spec=[
-            InputSpec(
-                shape=[None, None], dtype="int64", name='token_ids'), InputSpec(
-                    shape=[None], dtype="int64", name='length')
-        ])
+            InputSpec(shape=[None, None], dtype="int64", name="token_ids"),
+            InputSpec(shape=[None], dtype="int64", name="length"),
+        ],
+    )
     # Save in static graph model.
     paddle.jit.save(model, os.path.join(args.output_path, "inference"))
 

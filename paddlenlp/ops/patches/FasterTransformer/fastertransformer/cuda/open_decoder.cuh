@@ -30,4 +30,28 @@ void transpose_cache_batch_major_kernelLauncher(T* k_dst,
                                                 const int local_head_num,
                                                 cudaStream_t stream);
 
+template <typename T>
+void transpose_general_kernelLauncher(T* dst,
+                                      T* src,
+                                      const int batch_size,
+                                      const int seq_len,
+                                      const int head_num,
+                                      const int size_per_head,
+                                      cudaStream_t stream);
+
+template <typename T>
+__global__ void transpose(T* src,
+                          T* dst,
+                          const int batch_size,
+                          const int seq_len,
+                          const int head_num,
+                          const int size_per_head);
+
+template <typename T>
+void fusedQKV_masked_attention_dispatch_v2(
+  const T* qkv_buf, const T* qkv_bias,
+  T* key_cache, T* value_cache,
+  T* context_buf, const bool* finished, int max_batch_size, int inference_batch_size, 
+  int head_num, int size_per_head, const int step, const int max_seq_len, 
+  const int max_input_len, const int* input_lengths, const int rotary_embedding_dim, cudaStream_t stream);
 }

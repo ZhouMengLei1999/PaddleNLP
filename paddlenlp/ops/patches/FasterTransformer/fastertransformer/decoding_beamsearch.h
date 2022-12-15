@@ -37,6 +37,8 @@ private:
   typedef typename Traits_::DataType DataType_;
   const IAllocator &allocator_;
   struct DecodingBeamsearchArguments args_;
+  TensorParallelParam t_parallel_param_;
+  LayerParallelParam l_parallel_param_;
 
   const cudaDataType_t computeType_ = Traits_::computeType;
   const cudaDataType_t AType_ = Traits_::AType;
@@ -273,8 +275,8 @@ public:
     }
 
     size_t lm_head_buffer_size = (prefix_lm)
-                                     ? decoder_normed_result_buffer_size
-                                     : decoder_normed_result_buffer_size * 3;
+                                     ? decoder_normed_result_buffer_size * 3
+                                     : decoder_normed_result_buffer_size;
 
     size_t datatype_buf_size =
         from_tensor_size * 2 + decoder_workspace_size +
@@ -399,6 +401,16 @@ public:
         }
       }
     }
+  }
+
+  void set_tensor_parallel_param(const TensorParallelParam param) {
+    t_parallel_param_ = param;
+    decoder_->set_tensor_parallel_param(param);
+  }
+
+  void set_layer_parallel_param(const LayerParallelParam param) {
+    l_parallel_param_ = param;
+    decoder_->set_layer_parallel_param(param);
   }
 
   void forward_context(const DecoderInitParam<DataType_> *decoder_param,

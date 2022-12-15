@@ -32,11 +32,11 @@ huggingface_to_paddle = {
 }
 
 
-def convert_pytorch_checkpoint_to_paddle(pytorch_checkpoint_path,
-                                         paddle_dump_path):
+def convert_pytorch_checkpoint_to_paddle(pytorch_checkpoint_path, paddle_dump_path):
 
     import torch
     import paddle
+
     pytorch_state_dict = torch.load(pytorch_checkpoint_path, map_location="cpu")
     paddle_state_dict = OrderedDict()
     for k, v in pytorch_state_dict.items():
@@ -65,13 +65,14 @@ if __name__ == "__main__":
         default="roformer_chinese_base/pytorch_model.bin",
         type=str,
         required=True,
-        help="Path to the Pytorch checkpoint path.")
+        help="Path to the Pytorch checkpoint path.",
+    )
     parser.add_argument(
         "--paddle_dump_path",
         default="roformer_chinese_base/model_state.pdparams",
         type=str,
         required=True,
-        help="Path to the output Paddle model.")
+        help="Path to the output Paddle model.",
+    )
     args = parser.parse_args()
-    convert_pytorch_checkpoint_to_paddle(args.pytorch_checkpoint_path,
-                                         args.paddle_dump_path)
+    convert_pytorch_checkpoint_to_paddle(args.pytorch_checkpoint_path, args.paddle_dump_path)

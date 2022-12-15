@@ -29,8 +29,7 @@ class UnpackDataLoader(paddle.io.DataLoader):
         super(UnpackDataLoader, self).__init__(*args, batch_size=1, **kwargs)
 
     def __iter__(self):
-        return ([yy[0] for yy in y]
-                for y in super(UnpackDataLoader, self).__iter__())
+        return ([yy[0] for yy in y] for y in super(UnpackDataLoader, self).__iter__())
 
 
 def create_if_not_exists(dir):
@@ -42,4 +41,4 @@ def create_if_not_exists(dir):
 
 
 def get_warmup_and_linear_decay(max_steps, warmup_steps):
-    return lambda step: min(step / warmup_steps, 1. - (step - warmup_steps) / (max_steps - warmup_steps))
+    return lambda step: min(step / warmup_steps, 1.0 - (step - warmup_steps) / (max_steps - warmup_steps))

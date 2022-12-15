@@ -13,27 +13,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This file is modified from 
+# This file is modified from
 #  https://github.com/huggingface/transformers/blob/main/src/transformers/trainer_utils.py
 """
-Utilities for the Trainer class. 
+Utilities for the Trainer class.
 """
 import datetime
 import json
 import math
-import copy
-import functools
-import gc
-import inspect
 import os
 import random
 import re
-import threading
 import time
 from enum import Enum
-from typing import Any, Dict, NamedTuple, Optional, Tuple, Union
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 import numpy as np
+import paddle
+from paddle.io import IterableDataset
+from paddle.optimizer.lr import LambdaDecay
+
+from ..transformers.tokenizer_utils_base import BatchEncoding
+from ..utils.log import logger
+
+__all__ = [
+    "TrainOutput",
+    "PredictionOutput",
+    "EvalPrediction",
+    "IntervalStrategy",
+    "SchedulerType",
+    "set_seed",
+    "speed_metrics",
+    "get_last_checkpoint",
+    "get_scheduler",
+]
+
+
+def set_seed(seed: int):
+    import paddle
+
+    random.seed(seed)
+    np.random.seed(seed)
+    paddle.seed(seed)
 
 
 class ExplicitEnum(Enum):
@@ -87,16 +108,13 @@ _re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
 def get_last_checkpoint(folder):
     content = os.listdir(folder)
     checkpoints = [
-        path for path in content
-        if _re_checkpoint.search(path) is not None and os.path.isdir(
-            os.path.join(folder, path))
+        path
+        for path in content
+        if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(folder, path))
     ]
     if len(checkpoints) == 0:
         return
-    return os.path.join(
-        folder,
-        max(checkpoints,
-            key=lambda x: int(_re_checkpoint.search(x).groups()[0])))
+    return os.path.join(folder, max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0])))
 
 
 class IntervalStrategy(ExplicitEnum):
@@ -120,47 +138,20 @@ class OptimizerNames(ExplicitEnum):
     ADAFACTOR = "adafactor"
 
 
-class BestRun(NamedTuple):
+class ShardingOption(ExplicitEnum):
     """
-    The best run found by an hyperparameter search (see [`~Trainer.hyperparameter_search`]).
-
-    Parameters:
-        run_id (`str`):
-            The id of the best run (if models were saved, the corresponding checkpoint will be in the folder ending
-            with run-{run_id}).
-        objective (`float`):
-            The objective that was obtained for this run.
-        hyperparameters (`Dict[str, Any]`):
-            The hyperparameters picked to get this run.
+    Sharding Option
+    OP for sharding optimizer state
+    GRAD for sharding gradients
+    FULL_SHARD for sharding optimizer gradient and parameter
+    OFFLOAD means offload to cpu.
     """
 
-    run_id: str
-    objective: float
-    hyperparameters: Dict[str, Any]
-
-
-def default_compute_objective(metrics: Dict[str, float]) -> float:
-    """
-    The default objective to maximize/minimize when doing an hyperparameter search. It is the evaluation loss if no
-    metrics are provided to the [`Trainer`], the sum of all metrics otherwise.
-
-    Args:
-        metrics (`Dict[str, float]`): The metrics returned by the evaluate method.
-
-    Return:
-        `float`: The objective to minimize or maximize
-    """
-    metrics = copy.deepcopy(metrics)
-    loss = metrics.pop("eval_loss", None)
-    _ = metrics.pop("epoch", None)
-    # Remove speed metrics
-    speed_metrics = [
-        m for m in metrics.keys()
-        if m.endswith("_runtime") or m.endswith("_per_second")
-    ]
-    for sm in speed_metrics:
-        _ = metrics.pop(sm, None)
-    return loss if len(metrics) == 0 else sum(metrics.values())
+    SHARD_OP = "stage1"
+    SHARD_GRAD_OP = "stage2"
+    FULL_SHARD = "stage3"
+    # NO_SHARD = "no"
+    OFFLOAD = "offload"
 
 
 def is_main_process(local_rank):
@@ -210,10 +201,151 @@ def speed_metrics(split, start_time, num_samples=None, num_steps=None):
 class SchedulerType(ExplicitEnum):
     LINEAR = "linear"
     COSINE = "cosine"
-    COSINE_WITH_RESTARTS = "cosine_with_restarts"
-    POLYNOMIAL = "polynomial"
     CONSTANT = "constant"
     CONSTANT_WITH_WARMUP = "constant_with_warmup"
+
+
+def get_constant_schedule(learning_rate: float, last_epoch: int = -1):
+    """
+    Create a schedule with a constant learning rate, using the learning rate set in optimizer.
+    Args:
+        learning_rate (float)
+            The initial learning rate. It is a python float number.
+        last_epoch (`int`, *optional*, defaults to -1):
+            The index of the last epoch when resuming training.
+    Return:
+        `paddle.optimizer.lr.LambdaDecay` with the appropriate schedule.
+    """
+    return LambdaDecay(learning_rate, lambda _: 1, last_epoch=last_epoch)
+
+
+def get_constant_schedule_with_warmup(learning_rate: float, num_warmup_steps: int, last_epoch: int = -1):
+    """
+    Create a schedule with a constant learning rate preceded by a warmup period during which the learning rate
+    increases linearly between 0 and the initial lr set in the optimizer.
+    Args:
+        learning_rate (float)
+            The initial learning rate. It is a python float number.
+        num_warmup_steps (`int`):
+            The number of steps for the warmup phase.
+        last_epoch (`int`, *optional*, defaults to -1):
+            The index of the last epoch when resuming training.
+    Return:
+        `paddle.optimizer.lr.LambdaDecay` with the appropriate schedule.
+    """
+
+    def lr_lambda(current_step: int):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1.0, num_warmup_steps))
+        return 1.0
+
+    return LambdaDecay(learning_rate, lr_lambda, last_epoch=last_epoch)
+
+
+def get_linear_schedule_with_warmup(learning_rate: float, num_warmup_steps, num_training_steps, last_epoch=-1):
+    """
+    Create a schedule with a learning rate that decreases linearly from the initial lr set in the optimizer to 0, after
+    a warmup period during which it increases linearly from 0 to the initial lr set in the optimizer.
+    Args:
+        learning_rate (float)
+            The initial learning rate. It is a python float number.
+        num_warmup_steps (`int`):
+            The number of steps for the warmup phase.
+        num_training_steps (`int`):
+            The total number of training steps.
+        last_epoch (`int`, *optional*, defaults to -1):
+            The index of the last epoch when resuming training.
+    Return:
+        `paddle.optimizer.lr.LambdaDecay` with the appropriate schedule.
+    """
+
+    def lr_lambda(current_step: int):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        return max(
+            0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
+        )
+
+    return LambdaDecay(learning_rate, lr_lambda, last_epoch)
+
+
+def get_cosine_schedule_with_warmup(
+    learning_rate: float, num_warmup_steps: int, num_training_steps: int, num_cycles: float = 0.5, last_epoch: int = -1
+):
+    """
+    Create a schedule with a learning rate that decreases following the values of the cosine function between the
+    initial lr set in the optimizer to 0, after a warmup period during which it increases linearly between 0 and the
+    initial lr set in the optimizer.
+    Args:
+        learning_rate (float)
+            The initial learning rate. It is a python float number.
+        num_warmup_steps (`int`):
+            The number of steps for the warmup phase.
+        num_training_steps (`int`):
+            The total number of training steps.
+        num_cycles (`float`, *optional*, defaults to 0.5):
+            The number of waves in the cosine schedule (the defaults is to just decrease from the max value to 0
+            following a half-cosine).
+        last_epoch (`int`, *optional*, defaults to -1):
+            The index of the last epoch when resuming training.
+    Return:
+        `paddle.optimizer.lr.LambdaDecay` with the appropriate schedule.
+    """
+
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * float(num_cycles) * 2.0 * progress)))
+
+    return LambdaDecay(learning_rate, lr_lambda, last_epoch)
+
+
+TYPE_TO_SCHEDULER_FUNCTION = {
+    SchedulerType.LINEAR: get_linear_schedule_with_warmup,
+    SchedulerType.COSINE: get_cosine_schedule_with_warmup,
+    SchedulerType.CONSTANT: get_constant_schedule,
+    SchedulerType.CONSTANT_WITH_WARMUP: get_constant_schedule_with_warmup,
+}
+
+
+def get_scheduler(
+    name: Union[str, SchedulerType],
+    learning_rate: float,
+    num_warmup_steps: Optional[int] = None,
+    num_training_steps: Optional[int] = None,
+):
+    """
+    Unified API to get any scheduler from its name.
+    Args:
+        name (`str` or `SchedulerType`):
+            The name of the scheduler to use.
+        learning_rate (float)
+            The initial learning rate. It is a python float number.
+        num_warmup_steps (`int`, *optional*):
+            The number of warmup steps to do. This is not required by all schedulers (hence the argument being
+            optional), the function will raise an error if it's unset and the scheduler type requires it.
+        num_training_steps (`int``, *optional*):
+            The number of training steps to do. This is not required by all schedulers (hence the argument being
+            optional), the function will raise an error if it's unset and the scheduler type requires it.
+    """
+    name = SchedulerType(name)
+    schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+    if name == SchedulerType.CONSTANT:
+        return schedule_func(learning_rate)
+
+    # All other schedulers require `num_warmup_steps`
+    if num_warmup_steps is None:
+        raise ValueError(f"{name} requires `num_warmup_steps`, please provide that argument.")
+
+    if name == SchedulerType.CONSTANT_WITH_WARMUP:
+        return schedule_func(learning_rate, num_warmup_steps=num_warmup_steps)
+
+    # All other schedulers require `num_training_steps`
+    if num_training_steps is None:
+        raise ValueError(f"{name} requires `num_training_steps`, please provide that argument.")
+
+    return schedule_func(learning_rate, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
 
 
 def _secs2timedelta(secs):
@@ -243,7 +375,7 @@ def metrics_format(self, metrics: Dict[str, float]) -> Dict[str, float]:
             metrics_copy[k] = _secs2timedelta(v)
         elif k == "total_flos":
             metrics_copy[k] = f"{ int(v) >> 30 }GF"
-        elif type(metrics_copy[k]) == float:
+        elif isinstance(metrics_copy[k], float):
             metrics_copy[k] = round(v, 4)
 
     return metrics_copy
@@ -262,12 +394,12 @@ def log_metrics(self, split, metrics):
     if not self.is_world_process_zero():
         return
 
-    print(f"***** {split} metrics *****")
+    logger.info(f"***** {split} metrics *****")
     metrics_formatted = self.metrics_format(metrics)
     k_width = max(len(str(x)) for x in metrics_formatted.keys())
     v_width = max(len(str(x)) for x in metrics_formatted.values())
     for key in sorted(metrics_formatted.keys()):
-        print(f"  {key: <{k_width}} = {metrics_formatted[key]:>{v_width}}")
+        logger.info(f"  {key: <{k_width}} = {metrics_formatted[key]:>{v_width}}")
 
 
 def save_metrics(self, split, metrics, combined=True):
@@ -322,21 +454,158 @@ def has_length(dataset):
     """
     try:
         return len(dataset) is not None
-    except TypeError:
+    except (TypeError, ValueError, RuntimeError):
         # TypeError: len() of unsized object
         return False
 
 
-def get_last_checkpoint(folder):
-    content = os.listdir(folder)
-    checkpoints = [
-        path for path in content
-        if _re_checkpoint.search(path) is not None and os.path.isdir(
-            os.path.join(folder, path))
-    ]
-    if len(checkpoints) == 0:
-        return
-    return os.path.join(
-        folder,
-        max(checkpoints,
-            key=lambda x: int(_re_checkpoint.search(x).groups()[0])))
+class IterableDatasetShard(IterableDataset):
+    """
+    Wraps a Paddle `IterableDataset` to generate samples for one of the processes only. Instances of this class will
+    always yield a number of samples that is a round multiple of the actual batch size (which is `batch_size x
+    num_processes`). Depending on the value of the `drop_last` attribute, it will either stop the iteration at the
+    first batch that would be too small or loop with indices from the beginning.
+    On two processes with an iterable dataset yielding of `[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]` with a batch size of
+    2:
+    - the shard on process 0 will yield `[0, 1, 4, 5, 8, 9]` so will see batches `[0, 1]`, `[4, 5]`, `[8, 9]`
+    - the shard on process 1 will yield `[2, 3, 6, 7, 10, 11]` so will see batches `[2, 3]`, `[6, 7]`, `[10, 11]`
+    Args:
+        dataset (`paddle.io.IterableDataset`):
+            The batch sampler to split in several shards.
+        batch_size (`int`, *optional*, defaults to 1):
+            The size of the batches per shard.
+        drop_last (`bool`, *optional*, defaults to `False`):
+            Whether or not to drop the last incomplete batch or complete the last batches by using the samples from the
+            beginning.
+        num_processes (`int`, *optional*, defaults to 1):
+            The number of processes running concurrently.
+        process_index (`int`, *optional*, defaults to 0):
+            The index of the current process.
+        seed (`int`, *optional*, defaults to 0):
+            A random seed that will be used for the random number generation in
+            [`~trainer_utils.IterableDatasetShard.set_epoch`].
+    """
+
+    def __init__(
+        self,
+        dataset: IterableDataset,
+        batch_size: int = 1,
+        drop_last: bool = False,
+        num_processes: int = 1,
+        process_index: int = 0,
+        seed: int = 0,
+    ):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.num_processes = num_processes
+        self.process_index = process_index
+        self.seed = seed
+        self.epoch = 0
+        self.num_examples = 0
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+        if hasattr(self.dataset, "set_epoch"):
+            self.dataset.set_epoch(epoch)
+
+    def __iter__(self):
+        self.num_examples = 0
+        # TODO: support generator seed in sampling.
+        #
+        # if (
+        #     not hasattr(self.dataset, "set_epoch")
+        #     and hasattr(self.dataset, "generator")
+        #     and isinstance(self.dataset.generator, paddle.fluid.Generator)
+        # ):
+        #     self.dataset.generator.manual_seed(self.seed + self.epoch)
+        real_batch_size = self.batch_size * self.num_processes
+        process_slice = range(self.process_index * self.batch_size, (self.process_index + 1) * self.batch_size)
+
+        first_batch = None
+        current_batch = []
+        for element in self.dataset:
+            self.num_examples += 1
+            current_batch.append(element)
+            # Wait to have a full batch before yielding elements.
+            if len(current_batch) == real_batch_size:
+                for i in process_slice:
+                    yield current_batch[i]
+                if first_batch is None:
+                    first_batch = current_batch.copy()
+                current_batch = []
+
+        # Finished if drop_last is True, otherwise complete the last batch with elements from the beginning.
+        if not self.drop_last and len(current_batch) > 0:
+            if first_batch is None:
+                first_batch = current_batch.copy()
+            while len(current_batch) < real_batch_size:
+                current_batch += first_batch
+            for i in process_slice:
+                yield current_batch[i]
+
+    def __len__(self):
+        # Will raise an error if the underlying dataset is not sized.
+        if self.drop_last:
+            return (len(self.dataset) // (self.batch_size * self.num_processes)) * self.batch_size
+        else:
+            return math.ceil(len(self.dataset) / (self.batch_size * self.num_processes)) * self.batch_size
+
+
+def find_batch_size(tensors):
+    """
+    Find the first dimension of a tensor in a nested list/tuple/dict of tensors.
+    """
+    if isinstance(tensors, (list, tuple)):
+        for t in tensors:
+            result = find_batch_size(t)
+            if result is not None:
+                return result
+    elif isinstance(tensors, (dict, BatchEncoding)):
+        for key, value in tensors.items():
+            result = find_batch_size(value)
+            if result is not None:
+                return result
+    elif isinstance(tensors, paddle.Tensor):
+        return tensors.shape[0] if len(tensors.shape) >= 1 else None
+    elif isinstance(tensors, np.ndarray):
+        return tensors.shape[0] if len(tensors.shape) >= 1 else None
+
+
+class RemoveColumnsCollator:
+    """Wrap the data collator to remove unused columns before they are passed to the collator."""
+
+    def __init__(
+        self,
+        data_collator,
+        signature_columns,
+        logger=None,
+        model_name: Optional[str] = None,
+        description: Optional[str] = None,
+    ):
+        self.data_collator = data_collator
+        self.signature_columns = signature_columns
+        self.logger = logger
+        self.description = description
+        self.model_name = model_name
+        self.message_logged = False
+
+    def _remove_columns(self, feature: dict) -> dict:
+        if not isinstance(feature, dict):
+            return feature
+        if not self.message_logged and self.logger and self.model_name:
+            ignored_columns = list(set(feature.keys()) - set(self.signature_columns))
+            if len(ignored_columns) > 0:
+                dset_description = "" if self.description is None else f"in the {self.description} set"
+                self.logger.info(
+                    f"The following columns {dset_description} don't have a corresponding argument in "
+                    f"`{self.model_name}.forward` and have been ignored: {', '.join(ignored_columns)}."
+                    f" If {', '.join(ignored_columns)} are not expected by `{self.model_name}.forward`, "
+                    " you can safely ignore this message."
+                )
+                self.message_logged = True
+        return {k: v for k, v in feature.items() if k in self.signature_columns}
+
+    def __call__(self, features: List[dict]):
+        features = [self._remove_columns(feature) for feature in features]
+        return self.data_collator(features)

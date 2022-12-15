@@ -1,0 +1,15 @@
+[tool.isort]
+profile = 'black'
+skip = ['paddlenlp/transformers/__init__.py']
+
+[tool.black]
+line-length = 119
+target_version = ['py35', 'py36', 'py37', 'py38', 'py39', 'py310']
+exclude = ['.flake8']
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--ignore-glob=tests/data/  --ignore tests/dataset/test_imdb.py --ignore tests/embeddings/test_token_embedding.py --ignore tests/metrics/test_perplexity.py"
+testpaths = [
+    "tests",
+]
